@@ -1,0 +1,533 @@
+/**
+ * SENIOR GOOGLE APPS SCRIPT DEVELOPER IMPLEMENTATION
+ * API BACKEND FOR EXTERNAL FRONTEND - SALES PIPELINE VERSION
+ */
+
+// === IMPORTANT CONFIGURATION ===
+// Paste your Google Sheet ID here. 
+// You can find it in your Google Sheet URL: https://docs.google.com/spreadsheets/d/[THIS_IS_THE_ID]/edit
+const SPREADSHEET_ID = "PASTE_YOUR_SHEET_ID_HERE";
+
+function doGet() { return ContentService.createTextOutput("API Online - Intsys Administration"); }
+
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  const action = data.action;
+  let result;
+
+  try {
+    if (!SPREADSHEET_ID || SPREADSHEET_ID === "PASTE_YOUR_SHEET_ID_HERE") {
+      throw new Error("Backend not configured. Please add your SPREADSHEET_ID to Code.gs");
+    }
+
+    if (action === 'authenticateUser') result = authenticateUser(data.email, data.password);
+    else if (action === 'getInitialData') result = getInitialData();
+    else if (action === 'addCompany') result = addCompany(data);
+    else if (action === 'updateCompany') result = updateCompany(data);
+    else if (action === 'deleteCompany') result = deleteCompany(data);
+    else if (action === 'logInteraction') result = logInteraction(data);
+    else if (action === 'addUser') result = addUser(data);
+    else if (action === 'deleteUser') result = deleteUser(data.email);
+    else if (action === 'updateCompanyStatus') result = updateCompanyStatus(data);
+    else if (action === 'toggleNextStep') result = toggleNextStep(data);
+    else if (action === 'saveTargets') result = saveTargets(data);
+    
+    // SALES API ROUTES
+    else if (action === 'addSalesCompany') result = addSalesCompany(data);
+    else if (action === 'updateSalesCompany') result = updateSalesCompany(data);
+    else if (action === 'deleteSalesCompany') result = deleteSalesCompany(data);
+    else if (action === 'updateSalesPhase') result = updateSalesPhase(data);
+    else if (action === 'saveSalesTargets') result = saveSalesTargets(data);
+
+    // NEW: MINUTES OF MEETING ROUTES
+    else if (action === 'addMoM') result = addMoM(data);
+    else if (action === 'updateMoM') result = updateMoM(data);
+    else if (action === 'deleteMoM') result = deleteMoM(data.id);
+    else if (action === 'toggleMoMAction') result = toggleMoMAction(data);
+    
+    return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: result })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// --- Automatic Schema Validation & Repair ---
+function checkAndFixHeaders(ss) {
+  const schema = {
+    'Users': ['Name', 'Email', 'Password', 'Role', 'WeeklyTarget', 'MonthlyTarget'],
+    'Companies': ['ID', 'CompanyName', 'Location', 'LeadSource', 'Status', 'CreatedAt', 'AddedBy', 'POCDetails'],
+    'Interactions': ['Timestamp', 'CompanyID', 'InteractionType', 'Description', 'EmployeeEmail', 'NextAction', 'NextActionDate', 'NextActionStatus'],
+    'SalesCompanies': ['ID', 'CompanyName', 'Location', 'LeadSource', 'CreatedAt', 'AddedBy', 'POCDetails', 'PhasesJSON'],
+    'Settings': ['SettingKey', 'SettingValue'], 
+    'MoMs': ['ID', 'Date', 'Title', 'Notes', 'ActionItemsJSON', 'CreatedBy'] // NEW MoM Sheet
+  };
+
+  for (const [sheetName, headers] of Object.entries(schema)) {
+    let sheet = ss.getSheetByName(sheetName);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(headers);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+    } else {
+      const currentHeaders = sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, headers.length).getValues()[0] : [];
+      let needsFix = false;
+      
+      for (let i = 0; i < headers.length; i++) {
+        if (String(currentHeaders[i]).trim() !== headers[i]) {
+          needsFix = true;
+          break;
+        }
+      }
+      
+      if (needsFix) {
+        if (sheet.getLastRow() === 0) {
+          sheet.appendRow(headers);
+        } else {
+          sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        }
+        sheet.setFrozenRows(1);
+        sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+      }
+    }
+  }
+}
+
+// --- Logic ---
+function getInitialData() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  checkAndFixHeaders(ss);
+  
+  const users = ss.getSheetByName('Users').getDataRange().getValues();
+  const companies = ss.getSheetByName('Companies').getDataRange().getValues();
+  const interactions = ss.getSheetByName('Interactions').getDataRange().getValues();
+  const salesCompanies = ss.getSheetByName('SalesCompanies').getDataRange().getValues();
+  const settings = ss.getSheetByName('Settings').getDataRange().getValues();
+  const moms = ss.getSheetByName('MoMs').getDataRange().getValues();
+  
+  const companyObjects = companies.length > 1 ? companies.slice(1).map(row => ({
+    id: String(row[0]).trim(),
+    companyName: row[1],
+    location: row[2],
+    leadSource: row[3],
+    status: row[4],
+    createdAt: row[5],
+    addedBy: row[6],
+    pocDetails: row[7] 
+  })) : [];
+
+  const salesCompanyObjects = salesCompanies.length > 1 ? salesCompanies.slice(1).map(row => ({
+    id: String(row[0]).trim(),
+    companyName: row[1],
+    location: row[2],
+    leadSource: row[3],
+    createdAt: row[4],
+    addedBy: row[5],
+    pocDetails: row[6],
+    phases: row[7]
+  })) : [];
+
+  // Parse Minutes of Meeting
+  const momObjects = moms.length > 1 ? moms.slice(1).map(row => ({
+    id: String(row[0]).trim(),
+    date: row[1],
+    title: row[2],
+    notes: row[3],
+    actionItems: row[4] || '[]',
+    createdBy: row[5]
+  })) : [];
+
+  // Parse Sales Targets
+  let salesTargets = { pipeline: 0, revenue: 0, converted: 96, wonFromConverted: 24 };
+  if (settings.length > 1) {
+      settings.slice(1).forEach(row => {
+          if (row[0] === 'yearlyPipelineTarget') salesTargets.pipeline = Number(row[1]) || 0;
+          if (row[0] === 'yearlyRevenueTarget') salesTargets.revenue = Number(row[1]) || 0;
+          if (row[0] === 'yearlyConvertedTarget') salesTargets.converted = Number(row[1]) || 96;
+          if (row[0] === 'yearlyWonFromConvertedTarget') salesTargets.wonFromConverted = Number(row[1]) || 24;
+      });
+  }
+
+  const performance = {}; 
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay()); 
+  startOfWeek.setHours(0,0,0,0);
+
+  const interactionObjects = interactions.length > 1 ? interactions.slice(1).map(row => {
+    const logDate = new Date(row[0]);
+    const type = row[2];
+    const desc = row[3];
+    const email = row[4];
+
+    if (type === 'Status Change' && (desc === 'Status changed to Presentation' || desc === 'Marketing Lead created with status Presentation')) {
+        if (!performance[email]) performance[email] = { weekly: 0, monthly: 0 };
+        if (logDate >= startOfWeek) performance[email].weekly++;
+        if (logDate >= startOfMonth) performance[email].monthly++;
+    }
+
+    return {
+      timestamp: row[0],
+      companyId: String(row[1]).trim(),
+      type: row[2],
+      description: row[3],
+      employeeEmail: row[4],
+      nextAction: row[5] || '', 
+      nextActionDate: row[6] || '',
+      nextActionStatus: row[7] || 'Pending'
+    };
+  }) : [];
+
+  const usersWithTargets = users.length > 1 ? users.slice(1).map(row => ({
+    name: row[0],
+    email: String(row[1]).trim(),
+    role: row[3],
+    weeklyTarget: row[4] || 0, 
+    monthlyTarget: row[5] || 0,
+    performance: performance[String(row[1]).trim()] || { weekly: 0, monthly: 0 }
+  })) : [];
+
+  return {
+    users: usersWithTargets,
+    companies: companyObjects,
+    salesCompanies: salesCompanyObjects,
+    interactions: interactionObjects,
+    moms: momObjects,
+    salesTargets: salesTargets,
+    leadSources: [...new Set([...companyObjects.map(c => c.leadSource), ...salesCompanyObjects.map(c => c.leadSource)].filter(Boolean))],
+    interactionTypes: [...new Set(interactionObjects.map(i => i.type).filter(Boolean))]
+  };
+}
+
+// --- Minutes of Meeting (MoM) Functions ---
+function addMoM(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+  const id = obj.id || "MOM-" + Utilities.getUuid().substring(0, 8).toUpperCase();
+  sheet.appendRow([id, obj.date, obj.title, obj.notes, obj.actionItems, obj.createdBy]);
+  return true;
+}
+
+function updateMoM(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
+      sheet.getRange(i+1, 2).setValue(obj.date);
+      sheet.getRange(i+1, 3).setValue(obj.title);
+      sheet.getRange(i+1, 4).setValue(obj.notes);
+      sheet.getRange(i+1, 5).setValue(obj.actionItems);
+      return true;
+    }
+  }
+  throw new Error(`MoM not found for ID: ${obj.id}`);
+}
+
+function deleteMoM(id) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+  const data = sheet.getDataRange().getValues();
+  for(let i=data.length-1; i>=1; i--) {
+    if(String(data[i][0]).trim() === String(id).trim()) { 
+      sheet.deleteRow(i+1); 
+      return true;
+    }
+  }
+  throw new Error(`MoM not found for ID: ${id}`);
+}
+
+function toggleMoMAction(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
+      let items = [];
+      try { items = JSON.parse(data[i][4]); } catch(e){}
+      if (items[obj.index]) {
+          items[obj.index].completed = obj.completed;
+          sheet.getRange(i+1, 5).setValue(JSON.stringify(items));
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// ... (All other marketing, sales, and core logic functions remain exactly the same) ...
+function saveSalesTargets(data) {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Settings');
+    const rows = sheet.getDataRange().getValues();
+    let pFound = false, rFound = false, cFound = false, wFound = false;
+
+    for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0] === 'yearlyPipelineTarget') { sheet.getRange(i+1, 2).setValue(data.pipeline); pFound = true; }
+        if (rows[i][0] === 'yearlyRevenueTarget') { sheet.getRange(i+1, 2).setValue(data.revenue); rFound = true; }
+        if (rows[i][0] === 'yearlyConvertedTarget') { sheet.getRange(i+1, 2).setValue(data.converted); cFound = true; }
+        if (rows[i][0] === 'yearlyWonFromConvertedTarget') { sheet.getRange(i+1, 2).setValue(data.wonFromConverted); wFound = true; }
+    }
+
+    if (!pFound) sheet.appendRow(['yearlyPipelineTarget', data.pipeline]);
+    if (!rFound) sheet.appendRow(['yearlyRevenueTarget', data.revenue]);
+    if (!cFound) sheet.appendRow(['yearlyConvertedTarget', data.converted]);
+    if (!wFound) sheet.appendRow(['yearlyWonFromConvertedTarget', data.wonFromConverted]);
+
+    return true;
+}
+
+function addSalesCompany(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('SalesCompanies');
+  const id = obj.id ? String(obj.id).trim() : "SALES-" + Utilities.getUuid().substring(0, 8).toUpperCase();
+  const pocsData = obj.pocs || obj.pocDetails || '[]';
+  sheet.appendRow([id, obj.companyName, obj.location, obj.leadSource, new Date(), obj.addedBy, pocsData, obj.phases]);
+  return true;
+}
+
+function updateSalesCompany(obj) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('SalesCompanies');
+  const data = sheet.getDataRange().getValues();
+  let updated = false;
+  
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
+      sheet.getRange(i+1, 2).setValue(obj.companyName);
+      sheet.getRange(i+1, 3).setValue(obj.location);
+      sheet.getRange(i+1, 4).setValue(obj.leadSource);
+      sheet.getRange(i+1, 7).setValue(obj.pocs || obj.pocDetails || '[]');
+      updated = true;
+      break;
+    }
+  }
+  
+  if(!updated) throw new Error(`Sales Lead not found for ID: ${obj.id}`);
+
+  if (String(obj.id).trim().startsWith("COMP-")) {
+      const compSheet = ss.getSheetByName('Companies');
+      if (compSheet) {
+          const compData = compSheet.getDataRange().getValues();
+          for(let j=1; j<compData.length; j++) {
+              if(String(compData[j][0]).trim() === String(obj.id).trim()) {
+                  compSheet.getRange(j+1, 2).setValue(obj.companyName);
+                  compSheet.getRange(j+1, 3).setValue(obj.location);
+                  compSheet.getRange(j+1, 4).setValue(obj.leadSource);
+                  compSheet.getRange(j+1, 8).setValue(obj.pocs || obj.pocDetails || '[]');
+                  break;
+              }
+          }
+      }
+  }
+
+  return true;
+}
+
+function deleteSalesCompany(obj) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('SalesCompanies');
+  const data = sheet.getDataRange().getValues();
+  let deleted = false;
+  
+  for(let i=data.length-1; i>=1; i--) {
+    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
+      sheet.deleteRow(i+1); 
+      deleted = true;
+      break; 
+    }
+  }
+  
+  if(!deleted) throw new Error(`Sales Lead not found for ID: ${obj.id}`);
+  
+  if (String(obj.id).trim().startsWith("SALES-")) {
+      const intSheet = ss.getSheetByName('Interactions');
+      const intData = intSheet.getDataRange().getValues();
+      for(let j=intData.length-1; j>=1; j--) {
+          if(String(intData[j][1]).trim() === String(obj.id).trim()) {
+              intSheet.deleteRow(j+1);
+          }
+      }
+  }
+  return true;
+}
+
+function updateSalesPhase(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('SalesCompanies');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
+      sheet.getRange(i+1, 8).setValue(obj.phases); 
+      return true;
+    }
+  }
+  throw new Error(`Sales Lead not found for ID: ${obj.id}`);
+}
+
+
+// --- Marketing Functions ---
+function toggleNextStep(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions');
+  const data = sheet.getDataRange().getValues();
+  
+  for(let i=1; i<data.length; i++) {
+    let sheetDate = data[i][6];
+    let matchDate = false;
+    if (sheetDate instanceof Date) {
+        const sheetIso = sheetDate.toISOString().split('T')[0];
+        matchDate = sheetIso === obj.nextActionDate;
+    } else if (typeof sheetDate === 'string') {
+        matchDate = sheetDate.includes(obj.nextActionDate);
+    }
+
+    if(String(data[i][1]).trim() === String(obj.companyId).trim() && data[i][5] === obj.nextAction && matchDate) {
+      let status = 'Completed';
+      let dueDate = sheetDate instanceof Date ? sheetDate : new Date(obj.nextActionDate);
+      let today = new Date(); today.setHours(0,0,0,0); dueDate.setHours(0,0,0,0);
+      if (today > dueDate) status = 'Completed Late';
+      sheet.getRange(i+1, 8).setValue(status);
+      return true;
+    }
+  }
+  return false;
+}
+
+function saveTargets(data) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]).trim().toLowerCase() === String(data.email).trim().toLowerCase()) {
+      sheet.getRange(i + 1, 5).setValue(data.weekly);
+      sheet.getRange(i + 1, 6).setValue(data.monthly);
+      return true;
+    }
+  }
+  return false;
+}
+
+function addCompany(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
+  const id = obj.id ? String(obj.id).trim() : "COMP-" + Utilities.getUuid().substring(0, 8).toUpperCase();
+  const pocsData = obj.pocs || obj.pocDetails || '[]';
+  sheet.appendRow([id, obj.companyName, obj.location, obj.leadSource, obj.status, new Date(), obj.addedBy, pocsData]);
+  return true;
+}
+
+function updateCompany(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
+  const data = sheet.getDataRange().getValues();
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
+      const range = sheet.getRange(i+1, 1, 1, 8);
+      const row = data[i]; 
+      row[1] = obj.companyName; row[2] = obj.location; row[3] = obj.leadSource; row[4] = obj.status; row[7] = obj.pocs || obj.pocDetails || '[]'; 
+      range.setValues([row]);
+      return true;
+    }
+  }
+  throw new Error(`Marketing Lead not found for ID: ${obj.id}`);
+}
+
+function deleteCompany(obj) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const compSheet = ss.getSheetByName('Companies');
+  const compData = compSheet.getDataRange().getValues();
+  let deleted = false;
+  for(let i=compData.length-1; i>=1; i--) {
+    if(String(compData[i][0]).trim() === String(obj.id).trim()) { 
+      compSheet.deleteRow(i+1); 
+      deleted = true;
+      break; 
+    }
+  }
+  
+  if(!deleted) throw new Error(`Marketing Lead not found for ID: ${obj.id}`);
+
+  const intSheet = ss.getSheetByName('Interactions');
+  const intData = intSheet.getDataRange().getValues();
+  for(let j = intData.length - 1; j >= 1; j--) {
+    if(String(intData[j][1]).trim() === String(obj.id).trim()) {
+        intSheet.deleteRow(j + 1);
+    }
+  }
+
+  const salesSheet = ss.getSheetByName('SalesCompanies');
+  if (salesSheet) {
+      const salesData = salesSheet.getDataRange().getValues();
+      for(let k = salesData.length - 1; k >= 1; k--) {
+          if(String(salesData[k][0]).trim() === String(obj.id).trim()) {
+              salesSheet.deleteRow(k + 1);
+          }
+      }
+  }
+
+  return true;
+}
+
+function updateCompanyStatus(obj) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
+  const data = sheet.getDataRange().getValues();
+  let found = false;
+  for(let i=1; i<data.length; i++) {
+    if(String(data[i][0]).trim() === String(obj.companyId).trim()) {
+      if (data[i][4] === obj.newStatus) return true; 
+      sheet.getRange(i+1, 5).setValue(obj.newStatus); 
+      found = true;
+      break;
+    }
+  }
+  if(found) SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions').appendRow([new Date(), String(obj.companyId).trim(), 'Status Change', `Status changed to ${obj.newStatus}`, obj.employeeEmail, '', '', 'Completed']);
+  return found;
+}
+
+function logInteraction(obj) {
+  SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions').appendRow([
+    new Date(), String(obj.companyId).trim(), obj.interactionType, obj.description, obj.employeeEmail, obj.nextAction || '', obj.nextActionDate || '', 'Pending'
+  ]);
+  return true;
+}
+
+function authenticateUser(email, pass) { 
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
+  if(!sheet) return null;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).trim().toLowerCase() === String(email).trim().toLowerCase() && String(data[i][2]).trim() === String(pass).trim()) {
+      return { name: data[i][0], email: data[i][1], role: data[i][3] };
+    }
+  }
+  return null;
+}
+
+function addUser(obj) { 
+  SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users').appendRow([obj.name, obj.email, obj.password, obj.role, 0, 0]); 
+  return true; 
+}
+
+function deleteUser(email) { 
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).trim() === String(email).trim()) { sheet.deleteRow(i + 1); break; }
+  }
+  return true;
+}
+
+// --- Data Setup Engine ---
+function setup() {
+  if (!SPREADSHEET_ID || SPREADSHEET_ID === "PASTE_YOUR_SHEET_ID_HERE") {
+    throw new Error("You must paste your SPREADSHEET_ID at the top of the file before running setup().");
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  checkAndFixHeaders(ss); 
+  
+  if (ss.getSheetByName('Users').getLastRow() <= 1) {
+    ss.getSheetByName('Users').appendRow(['Admin', 'admin@example.com', 'admin123', 'Admin', 0, 0]);
+  }
+  if (ss.getSheetByName('Companies').getLastRow() <= 1) {
+    ss.getSheetByName('Companies').appendRow(['COMP-001', 'Acme Corp', 'NY', 'LinkedIn', 'Lead Generated', new Date(), 'admin@example.com', '[{"name":"Alice","role":"CTO","email":"a@acme.com","phone":"123"}]']);
+    ss.getSheetByName('Interactions').appendRow([new Date(), 'COMP-001', 'Status Change', 'Marketing Lead created with status Lead Generated', 'admin@example.com', '', '', 'Completed']);
+  }
+
+  const defaultSheet = ss.getSheetByName("Sheet1");
+  if (defaultSheet && ss.getSheets().length > 1) {
+    ss.deleteSheet(defaultSheet);
+  }
+}
