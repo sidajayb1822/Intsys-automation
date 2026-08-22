@@ -469,6 +469,7 @@
                                     <option value="Lead Generated">Lead Generated</option>
                                     <option value="Initial Call">Initial Call</option>
                                     <option value="Presentation">Presentation</option>
+                                    <option value="In-Person Meeting">In-Person Meeting</option>
                                     <option value="Requirement Generation">Requirement Generation</option>
                                     <option value="Closed-Won">Closed-Won</option>
                                     <option value="Closed-Lost">Closed-Lost</option>
@@ -842,6 +843,7 @@
                             <option value="Lead Generated">Lead Generated</option>
                             <option value="Initial Call">Initial Call</option>
                             <option value="Presentation">Presentation</option>
+                            <option value="In-Person Meeting">In-Person Meeting</option>
                             <option value="Requirement Generation">Requirement Generation</option>
                             <option value="Closed-Won">Closed-Won</option>
                             <option value="Closed-Lost">Closed-Lost</option>
@@ -1337,6 +1339,7 @@
                                 <option value="Lead Generated" ${c.status === 'Lead Generated' ? 'selected' : ''}>Lead Generated</option>
                                 <option value="Initial Call" ${c.status === 'Initial Call' ? 'selected' : ''}>Initial Call</option>
                                 <option value="Presentation" ${c.status === 'Presentation' ? 'selected' : ''}>Presentation</option>
+                                <option value="In-Person Meeting" ${c.status === 'In-Person Meeting' ? 'selected' : ''}>In-Person Meeting</option>
                                 <option value="Requirement Generation" ${c.status === 'Requirement Generation' ? 'selected' : ''}>Requirement Generation</option>
                                 <option value="Closed-Won" ${c.status === 'Closed-Won' ? 'selected' : ''}>Closed-Won</option>
                                 <option value="Closed-Lost" ${c.status === 'Closed-Lost' ? 'selected' : ''}>Closed-Lost</option>
@@ -1371,6 +1374,7 @@
                                 <option value="Lead Generated" ${c.status === 'Lead Generated' ? 'selected' : ''}>Lead Generated</option>
                                 <option value="Initial Call" ${c.status === 'Initial Call' ? 'selected' : ''}>Initial Call</option>
                                 <option value="Presentation" ${c.status === 'Presentation' ? 'selected' : ''}>Presentation</option>
+                                <option value="In-Person Meeting" ${c.status === 'In-Person Meeting' ? 'selected' : ''}>In-Person Meeting</option>
                                 <option value="Requirement Generation" ${c.status === 'Requirement Generation' ? 'selected' : ''}>Requirement Generation</option>
                                 <option value="Closed-Won" ${c.status === 'Closed-Won' ? 'selected' : ''}>Closed-Won</option>
                                 <option value="Closed-Lost" ${c.status === 'Closed-Lost' ? 'selected' : ''}>Closed-Lost</option>
@@ -2986,7 +2990,7 @@
             
             const sourceCounts = {}; appData.companies.forEach(c => sourceCounts[c.leadSource] = (sourceCounts[c.leadSource] || 0) + 1);
             
-            const statuses = ["Lead Generated", "Initial Call", "Presentation", "Requirement Generation", "Closed-Won", "Closed-Lost", "Interest Dropped", "Shelved"];
+            const statuses = ["Lead Generated", "Initial Call", "Presentation", "In-Person Meeting", "Requirement Generation", "Closed-Won", "Closed-Lost", "Interest Dropped", "Shelved"];
             const datasets = statuses.map((st, i) => ({ label: st, data: Object.keys(sourceCounts).map(src => appData.companies.filter(c => c.leadSource === src && c.status === st).length), backgroundColor: `hsla(${i * 45}, 70%, 50%, 0.8)` }));
             
             const barChartEl = document.getElementById('barChart');
