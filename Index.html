@@ -2028,6 +2028,7 @@
                 document.getElementById('detailStatus').classList.remove('opacity-50', 'cursor-not-allowed');
                 buttonsHtml = `<button onclick="confirmMoveToSales('${id}')" class="flex items-center space-x-2 text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors text-sm font-bold mr-2"><i data-lucide="arrow-right-circle" class="w-4 h-4"></i> <span class="hidden md:inline">Move to Sales</span><span class="md:hidden">Move</span></button>`;
                 if (canEditProfile) buttonsHtml += `<button onclick="openEditCompanyModal('${id}')" class="flex items-center space-x-2 text-gray-600 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium"><i data-lucide="edit-2" class="w-4 h-4"></i> <span class="hidden md:inline">Edit Details</span></button>`;
+                else if (currentUser.role === 'Employee') buttonsHtml += `<button onclick="openEditCompanyModal('${id}')" class="flex items-center space-x-2 text-gray-600 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium"><i data-lucide="user-plus" class="w-4 h-4"></i> <span class="hidden md:inline">Add Contact</span></button>`;
                 if (canDelete) buttonsHtml += `<button onclick="confirmDeleteCompany('${id}', 'marketing')" class="flex items-center space-x-2 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium ml-2"><i data-lucide="trash" class="w-4 h-4"></i></button>`;
                 document.getElementById('interactionFormContainer').classList.remove('hidden');
                 document.getElementById('interactionFormClosedMessage').classList.add('hidden');
@@ -2094,7 +2095,8 @@
             }
 
             if (canEditProfile) buttonsHtml += `<button onclick="openEditSalesCompanyModal('${id}')" class="flex items-center space-x-2 text-gray-600 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium"><i data-lucide="edit-2" class="w-4 h-4"></i> <span class="hidden md:inline">Edit Details</span></button>`;
-            
+            else if (currentUser.role === 'Employee') buttonsHtml += `<button onclick="openEditSalesCompanyModal('${id}')" class="flex items-center space-x-2 text-gray-600 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium"><i data-lucide="user-plus" class="w-4 h-4"></i> <span class="hidden md:inline">Add Contact</span></button>`;
+
             if (canDelete && !isFromMarketing) {
                 buttonsHtml += `<button onclick="confirmDeleteCompany('${id}', 'sales')" class="flex items-center space-x-2 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium ml-2"><i data-lucide="trash" class="w-4 h-4"></i> <span>Delete</span></button>`;
             }
@@ -2366,6 +2368,10 @@
             document.getElementById('salesCompanyForm').reset();
             document.getElementById('salesCompanyFormId').value = "";
             document.getElementById('salesCompanyModalTitle').textContent = "Add Sales Lead";
+            ['salesInputCompanyName', 'salesInputLocation', 'salesInputLeadSource'].forEach(fieldId => {
+                const el = document.getElementById(fieldId);
+                if(el) { el.disabled = false; el.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500'); }
+            });
             document.getElementById('salesPocContainer').innerHTML = '';
             addSalesPocField();
             toggleModal('salesCompanyModal');
@@ -2373,46 +2379,67 @@
 
         function openEditSalesCompanyModal(id) {
             const co = appData.salesCompanies.find(c => String(c.id).trim() === String(id).trim()); if(!co) return;
+            const isEmployee = currentUser.role === 'Employee';
             document.getElementById('salesCompanyFormId').value = co.id;
             document.getElementById('salesInputCompanyName').value = co.companyName;
             document.getElementById('salesInputLocation').value = co.location || "";
             document.getElementById('salesInputLeadSource').value = co.leadSource;
-            document.getElementById('salesCompanyModalTitle').textContent = "Edit Sales Lead Details";
+            document.getElementById('salesCompanyModalTitle').textContent = isEmployee ? "Add Point of Contact" : "Edit Sales Lead Details";
+
+            ['salesInputCompanyName', 'salesInputLocation', 'salesInputLeadSource'].forEach(fieldId => {
+                const el = document.getElementById(fieldId);
+                if(el) { el.disabled = isEmployee; isEmployee ? el.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500') : el.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500'); }
+            });
             document.getElementById('salesPocContainer').innerHTML = '';
             let pocs = []; try { pocs = co.pocDetails ? JSON.parse(co.pocDetails) : []; } catch(e) {}
-            if (pocs.length === 0) addSalesPocField(); else pocs.forEach(p => addSalesPocField(p));
+            if (pocs.length === 0) addSalesPocField(); else pocs.forEach(p => addSalesPocField(p, isEmployee));
             toggleModal('salesCompanyModal');
         }
 
-        function addSalesPocField(data = null) {
+        function addSalesPocField(data = null, locked = false) {
             const div = document.createElement('div');
             div.className = "bg-gray-50 p-4 rounded-lg border border-gray-200 relative";
-            div.innerHTML = `${document.getElementById('salesPocContainer').children.length > 0 ? '<button type="button" onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-400 hover:text-red-600 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button>' : ''}<div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4"><input class="poc-name w-full px-3 py-2 border rounded text-sm" placeholder="Name *" required value="${data ? data.name : ''}"><input class="poc-role w-full px-3 py-2 border rounded text-sm" placeholder="Designation" value="${data ? data.role || '' : ''}"><input class="poc-email w-full px-3 py-2 border rounded text-sm" placeholder="Email" type="email" value="${data ? data.email || '' : ''}"><input class="poc-phone w-full px-3 py-2 border rounded text-sm" placeholder="Phone Number" value="${data ? data.phone || '' : ''}"></div>`;
+            if (locked) div.dataset.locked = 'true';
+            const lockCls = locked ? ' bg-gray-100 cursor-not-allowed text-gray-500' : '';
+            const disabledAttr = locked ? 'disabled' : '';
+            const removeBtn = (!locked && document.getElementById('salesPocContainer').children.length > 0) ? '<button type="button" onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-400 hover:text-red-600 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button>' : '';
+            div.innerHTML = `${removeBtn}<div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4"><input class="poc-name w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Name *" required value="${data ? data.name : ''}" ${disabledAttr}><input class="poc-role w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Designation" value="${data ? data.role || '' : ''}" ${disabledAttr}><input class="poc-email w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Email" type="email" value="${data ? data.email || '' : ''}" ${disabledAttr}><input class="poc-phone w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Phone Number" value="${data ? data.phone || '' : ''}" ${disabledAttr}></div>`;
             document.getElementById('salesPocContainer').appendChild(div);
             lucide.createIcons();
         }
 
         document.getElementById('salesCompanyForm').onsubmit = (e) => {
-            e.preventDefault(); 
+            e.preventDefault();
             const submitBtn = e.target.querySelector('button[type="submit"]');
             if(submitBtn.disabled) return;
             submitBtn.disabled = true;
 
-            const formData = new FormData(e.target); 
+            const formData = new FormData(e.target);
             const data = Object.fromEntries(formData);
-            const pocs = []; document.querySelectorAll('#salesPocContainer > div').forEach(div => { const name = div.querySelector('.poc-name').value; if(name) { pocs.push({ name: name, role: div.querySelector('.poc-role').value, email: div.querySelector('.poc-email').value, phone: div.querySelector('.poc-phone').value }); } });
-            data.pocs = JSON.stringify(pocs); 
+            data.id = data.id ? String(data.id).trim() : data.id;
+            const original = data.id ? appData.salesCompanies.find(c => String(c.id).trim() === data.id) : null;
+
+            const pocs = [];
+            if (original && currentUser.role === 'Employee') {
+                // Employees can only add new POCs - seed from the server's last-known list untouched, ignoring any locked (existing) rows in the DOM.
+                try { pocs.push(...(original.pocDetails ? JSON.parse(original.pocDetails) : [])); } catch(e) {}
+                document.querySelectorAll('#salesPocContainer > div:not([data-locked="true"])').forEach(div => { const name = div.querySelector('.poc-name').value; if(name) { pocs.push({ name: name, role: div.querySelector('.poc-role').value, email: div.querySelector('.poc-email').value, phone: div.querySelector('.poc-phone').value }); } });
+                if(!data.companyName) data.companyName = original.companyName;
+                if(!data.location) data.location = original.location;
+                if(!data.leadSource) data.leadSource = original.leadSource;
+            } else {
+                document.querySelectorAll('#salesPocContainer > div').forEach(div => { const name = div.querySelector('.poc-name').value; if(name) { pocs.push({ name: name, role: div.querySelector('.poc-role').value, email: div.querySelector('.poc-email').value, phone: div.querySelector('.poc-phone').value }); } });
+            }
+            data.pocs = JSON.stringify(pocs);
             data.addedBy = currentUser.email;
-            
+
             toggleModal('salesCompanyModal');
 
             if (data.id) {
-                const original = appData.salesCompanies.find(c => String(c.id).trim() === String(data.id).trim());
-                if(original) Object.assign(original, data, { pocDetails: data.pocs }); 
-                openSalesDetail(data.id, true); 
+                if(original) Object.assign(original, data, { pocDetails: data.pocs });
+                openSalesDetail(data.id, true);
                 renderSalesCards();
-                
-                data.id = String(data.id).trim(); // Trim ID for safety
+
                 api('updateSalesCompany', data).catch(e => {
                     console.error(e);
                     alert("Action failed. The data might be out of sync. Refreshing now...");
@@ -2707,31 +2734,35 @@
 
         function openEditCompanyModal(id) {
             const co = appData.companies.find(c => String(c.id).trim() === String(id).trim()); if(!co) return;
+            const isEmployee = currentUser.role === 'Employee';
             document.getElementById('companyFormId').value = co.id;
             document.getElementById('inputCompanyName').value = co.companyName;
             document.getElementById('inputLocation').value = co.location || "";
             document.getElementById('inputStatus').value = co.status;
             document.getElementById('inputLeadSource').value = co.leadSource;
-            document.getElementById('companyModalTitle').textContent = "Edit Marketing Lead Details";
-            
+            document.getElementById('companyModalTitle').textContent = isEmployee ? "Add Point of Contact" : "Edit Marketing Lead Details";
+
             const statusInput = document.getElementById('inputStatus');
             if(statusInput) { statusInput.disabled = true; statusInput.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500'); }
-            
-            const isEmployee = currentUser.role === 'Employee';
+
             ['inputCompanyName', 'inputLocation', 'inputLeadSource'].forEach(fieldId => {
-                const el = document.getElementById(fieldId); 
+                const el = document.getElementById(fieldId);
                 if(el) { el.disabled = isEmployee; isEmployee ? el.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500') : el.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500'); }
             });
             document.getElementById('pocContainer').innerHTML = '';
             let pocs = []; try { pocs = co.pocDetails ? JSON.parse(co.pocDetails) : []; } catch(e) {}
-            if (pocs.length === 0) addPocField(); else pocs.forEach(p => addPocField(p));
+            if (pocs.length === 0) addPocField(); else pocs.forEach(p => addPocField(p, isEmployee));
             toggleModal('companyModal');
         }
 
-        function addPocField(data = null) {
+        function addPocField(data = null, locked = false) {
             const div = document.createElement('div');
             div.className = "bg-gray-50 p-4 rounded-lg border border-gray-200 relative";
-            div.innerHTML = `${document.getElementById('pocContainer').children.length > 0 ? '<button type="button" onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-400 hover:text-red-600 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button>' : ''}<div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4"><input class="poc-name w-full px-3 py-2 border rounded text-sm" placeholder="Name *" required value="${data ? data.name : ''}"><input class="poc-role w-full px-3 py-2 border rounded text-sm" placeholder="Designation" value="${data ? data.role || '' : ''}"><input class="poc-email w-full px-3 py-2 border rounded text-sm" placeholder="Email" type="email" value="${data ? data.email || '' : ''}"><input class="poc-phone w-full px-3 py-2 border rounded text-sm" placeholder="Phone Number" value="${data ? data.phone || '' : ''}"></div>`;
+            if (locked) div.dataset.locked = 'true';
+            const lockCls = locked ? ' bg-gray-100 cursor-not-allowed text-gray-500' : '';
+            const disabledAttr = locked ? 'disabled' : '';
+            const removeBtn = (!locked && document.getElementById('pocContainer').children.length > 0) ? '<button type="button" onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-400 hover:text-red-600 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button>' : '';
+            div.innerHTML = `${removeBtn}<div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4"><input class="poc-name w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Name *" required value="${data ? data.name : ''}" ${disabledAttr}><input class="poc-role w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Designation" value="${data ? data.role || '' : ''}" ${disabledAttr}><input class="poc-email w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Email" type="email" value="${data ? data.email || '' : ''}" ${disabledAttr}><input class="poc-phone w-full px-3 py-2 border rounded text-sm${lockCls}" placeholder="Phone Number" value="${data ? data.phone || '' : ''}" ${disabledAttr}></div>`;
             document.getElementById('pocContainer').appendChild(div);
             lucide.createIcons();
         }
@@ -2842,17 +2873,25 @@
             if(submitBtn.disabled) return;
             submitBtn.disabled = true;
 
-            const formData = new FormData(e.target); 
+            const formData = new FormData(e.target);
             const data = Object.fromEntries(formData);
-            const pocs = []; document.querySelectorAll('#pocContainer > div').forEach(div => { const name = div.querySelector('.poc-name').value; if(name) { pocs.push({ name: name, role: div.querySelector('.poc-role').value, email: div.querySelector('.poc-email').value, phone: div.querySelector('.poc-phone').value }); } });
-            data.pocs = JSON.stringify(pocs); 
+            data.id = data.id ? String(data.id).trim() : data.id; // Critical: Trim ID before sending
+            const original = data.id ? appData.companies.find(c => String(c.id).trim() === data.id) : null;
+
+            const pocs = [];
+            if (original && currentUser.role === 'Employee') {
+                // Employees can only add new POCs - seed from the server's last-known list untouched, ignoring any locked (existing) rows in the DOM.
+                try { pocs.push(...(original.pocDetails ? JSON.parse(original.pocDetails) : [])); } catch(e) {}
+                document.querySelectorAll('#pocContainer > div:not([data-locked="true"])').forEach(div => { const name = div.querySelector('.poc-name').value; if(name) { pocs.push({ name: name, role: div.querySelector('.poc-role').value, email: div.querySelector('.poc-email').value, phone: div.querySelector('.poc-phone').value }); } });
+            } else {
+                document.querySelectorAll('#pocContainer > div').forEach(div => { const name = div.querySelector('.poc-name').value; if(name) { pocs.push({ name: name, role: div.querySelector('.poc-role').value, email: div.querySelector('.poc-email').value, phone: div.querySelector('.poc-phone').value }); } });
+            }
+            data.pocs = JSON.stringify(pocs);
             data.addedBy = currentUser.email;
-            
+
             toggleModal('companyModal');
 
             if (data.id) {
-                data.id = String(data.id).trim(); // Critical: Trim ID before sending
-                const original = appData.companies.find(c => String(c.id).trim() === data.id);
                 if(original) {
                     data.status = original.status; 
                     if(currentUser.role === 'Employee') {
