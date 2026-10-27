@@ -11,246 +11,314 @@ const SPREADSHEET_ID = "PASTE_YOUR_SHEET_ID_HERE";
 function doGet() { return ContentService.createTextOutput("API Online - Intsys Administration"); }
 
 function doPost(e) {
-  const data = JSON.parse(e.postData.contents);
-  const action = data.action;
-  let result;
+    const data = JSON.parse(e.postData.contents);
+    const action = data.action;
+    let result;
 
-  try {
-    if (!SPREADSHEET_ID || SPREADSHEET_ID === "PASTE_YOUR_SHEET_ID_HERE") {
-      throw new Error("Backend not configured. Please add your SPREADSHEET_ID to Code.gs");
+    try {
+        if (!SPREADSHEET_ID || SPREADSHEET_ID === "PASTE_YOUR_SHEET_ID_HERE") {
+            throw new Error("Backend not configured. Please add your SPREADSHEET_ID to Code.gs");
+        }
+
+        if (action === 'authenticateUser') result = authenticateUser(data.email, data.password);
+        else if (action === 'getInitialData') result = getInitialData();
+        else if (action === 'addCompany') result = addCompany(data);
+        else if (action === 'updateCompany') result = updateCompany(data);
+        else if (action === 'deleteCompany') result = deleteCompany(data);
+        else if (action === 'logInteraction') result = logInteraction(data);
+        else if (action === 'addUser') result = addUser(data);
+        else if (action === 'deleteUser') result = deleteUser(data.email);
+        else if (action === 'updateCompanyStatus') result = updateCompanyStatus(data);
+        else if (action === 'toggleNextStep') result = toggleNextStep(data);
+        else if (action === 'saveTargets') result = saveTargets(data);
+
+        // SALES API ROUTES
+        else if (action === 'addSalesCompany') result = addSalesCompany(data);
+        else if (action === 'updateSalesCompany') result = updateSalesCompany(data);
+        else if (action === 'deleteSalesCompany') result = deleteSalesCompany(data);
+        else if (action === 'updateSalesPhase') result = updateSalesPhase(data);
+        else if (action === 'saveSalesTargets') result = saveSalesTargets(data);
+
+        // NEW: MINUTES OF MEETING ROUTES
+        else if (action === 'addMoM') result = addMoM(data);
+        else if (action === 'updateMoM') result = updateMoM(data);
+        else if (action === 'deleteMoM') result = deleteMoM(data.id);
+        else if (action === 'toggleMoMAction') result = toggleMoMAction(data);
+
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: result })).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
     }
-
-    if (action === 'authenticateUser') result = authenticateUser(data.email, data.password);
-    else if (action === 'getInitialData') result = getInitialData();
-    else if (action === 'addCompany') result = addCompany(data);
-    else if (action === 'updateCompany') result = updateCompany(data);
-    else if (action === 'deleteCompany') result = deleteCompany(data);
-    else if (action === 'logInteraction') result = logInteraction(data);
-    else if (action === 'addUser') result = addUser(data);
-    else if (action === 'deleteUser') result = deleteUser(data.email);
-    else if (action === 'updateCompanyStatus') result = updateCompanyStatus(data);
-    else if (action === 'toggleNextStep') result = toggleNextStep(data);
-    else if (action === 'saveTargets') result = saveTargets(data);
-    
-    // SALES API ROUTES
-    else if (action === 'addSalesCompany') result = addSalesCompany(data);
-    else if (action === 'updateSalesCompany') result = updateSalesCompany(data);
-    else if (action === 'deleteSalesCompany') result = deleteSalesCompany(data);
-    else if (action === 'updateSalesPhase') result = updateSalesPhase(data);
-    else if (action === 'saveSalesTargets') result = saveSalesTargets(data);
-
-    // NEW: MINUTES OF MEETING ROUTES
-    else if (action === 'addMoM') result = addMoM(data);
-    else if (action === 'updateMoM') result = updateMoM(data);
-    else if (action === 'deleteMoM') result = deleteMoM(data.id);
-    else if (action === 'toggleMoMAction') result = toggleMoMAction(data);
-    
-    return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: result })).setMimeType(ContentService.MimeType.JSON);
-  } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
-  }
 }
 
 // --- Automatic Schema Validation & Repair ---
 function checkAndFixHeaders(ss) {
-  const schema = {
-    'Users': ['Name', 'Email', 'Password', 'Role', 'WeeklyTarget', 'MonthlyTarget'],
-    'Companies': ['ID', 'CompanyName', 'Location', 'LeadSource', 'Status', 'CreatedAt', 'AddedBy', 'POCDetails'],
-    'Interactions': ['Timestamp', 'CompanyID', 'InteractionType', 'Description', 'EmployeeEmail', 'NextAction', 'NextActionDate', 'NextActionStatus'],
-    'SalesCompanies': ['ID', 'CompanyName', 'Location', 'LeadSource', 'CreatedAt', 'AddedBy', 'POCDetails', 'PhasesJSON'],
-    'Settings': ['SettingKey', 'SettingValue'], 
-    'MoMs': ['ID', 'Date', 'Title', 'Notes', 'ActionItemsJSON', 'CreatedBy'] // NEW MoM Sheet
-  };
+    const schema = {
+        'Users': ['Name', 'Email', 'Password', 'Role', 'WeeklyTarget', 'MonthlyTarget'],
+        'Companies': ['ID', 'CompanyName', 'Location', 'LeadSource', 'Status', 'CreatedAt', 'AddedBy', 'POCDetails'],
+        'Interactions': ['Timestamp', 'CompanyID', 'InteractionType', 'Description', 'EmployeeEmail', 'NextAction', 'NextActionDate', 'NextActionStatus', 'InteractionID'],
+        'SalesCompanies': ['ID', 'CompanyName', 'Location', 'LeadSource', 'CreatedAt', 'AddedBy', 'POCDetails', 'PhasesJSON'],
+        'Settings': ['SettingKey', 'SettingValue'],
+        'MoMs': ['ID', 'Date', 'Title', 'Attendees', 'Notes', 'ActionItemsJSON', 'CreatedBy'] // NEW MoM Sheet
+    };
 
-  for (const [sheetName, headers] of Object.entries(schema)) {
-    let sheet = ss.getSheetByName(sheetName);
-    
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(headers);
-      sheet.setFrozenRows(1);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-    } else {
-      const currentHeaders = sheet.getLastRow() > 0 ? sheet.getRange(1, 1, 1, headers.length).getValues()[0] : [];
-      let needsFix = false;
-      
-      for (let i = 0; i < headers.length; i++) {
-        if (String(currentHeaders[i]).trim() !== headers[i]) {
-          needsFix = true;
-          break;
-        }
-      }
-      
-      if (needsFix) {
-        if (sheet.getLastRow() === 0) {
-          sheet.appendRow(headers);
+    for (const [sheetName, headers] of Object.entries(schema)) {
+        let sheet = ss.getSheetByName(sheetName);
+
+        if (!sheet) {
+            sheet = ss.insertSheet(sheetName);
+            sheet.appendRow(headers);
+            sheet.setFrozenRows(1);
+            sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
         } else {
-          sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+            // Get the actual number of columns currently in the sheet
+            const lastColumn = sheet.getLastColumn();
+            const currentHeaders = sheet.getLastRow() > 0 && lastColumn > 0
+                ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0]
+                : [];
+            let needsFix = false;
+
+            // Check if headers match exactly
+            if (currentHeaders.length !== headers.length) {
+                needsFix = true;
+            } else {
+                for (let i = 0; i < headers.length; i++) {
+                    const currentHeader = String(currentHeaders[i] || '').trim();
+                    const expectedHeader = headers[i];
+                    if (currentHeader !== expectedHeader) {
+                        needsFix = true;
+                        // Debug logging for MoMs sheet issues
+                        if (sheetName === 'MoMs') {
+                            console.log(`MoM Header mismatch at column ${i + 1}: expected="${expectedHeader}" got="${currentHeader}"`);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (needsFix) {
+                if (sheet.getLastRow() === 0) {
+                    sheet.appendRow(headers);
+                } else {
+                    // Special migration for MoMs sheet to add Attendees column
+                    if (sheetName === 'MoMs') {
+                        const col4Header = String(currentHeaders[3] || '').trim();
+
+                        // Check if we have the old 6-column schema (without Attendees)
+                        if (lastColumn === 6 && col4Header === 'Notes') {
+                            // Old schema: ID, Date, Title, Notes, ActionItemsJSON, CreatedBy
+                            // Insert Attendees column after Title (position 3)
+                            sheet.insertColumnAfter(3);
+
+                            // Fill the new Attendees column with empty values for existing rows
+                            if (sheet.getLastRow() > 1) {
+                                sheet.getRange(2, 4, sheet.getLastRow() - 1, 1).setValue('');
+                            }
+                        }
+                        // Check if we have 7 columns but wrong structure (Notes in position 4 instead of Attendees)
+                        else if (lastColumn === 7 && col4Header === 'Notes') {
+                            // This means we have: ID, Date, Title, Notes, ActionItemsJSON, CreatedBy, CreatedBy (duplicate)
+                            // Delete the last column first
+                            sheet.deleteColumn(7);
+
+                            // Now we have 6 columns, insert Attendees after Title
+                            sheet.insertColumnAfter(3);
+
+                            // Fill the new Attendees column with empty values for existing rows
+                            if (sheet.getLastRow() > 1) {
+                                sheet.getRange(2, 4, sheet.getLastRow() - 1, 1).setValue('');
+                            }
+                        }
+                        // Check if we have extra columns (more than 7)
+                        else if (lastColumn > 7) {
+                            // Delete extra columns first
+                            sheet.deleteColumns(8, lastColumn - 7);
+                        }
+                        // If we have exactly 7 columns with correct structure, just fix header names below
+                    } else if (sheetName === 'Interactions' && lastColumn === 8) {
+                        // Migration for adding InteractionID to the end
+                        const lastRow = sheet.getLastRow();
+                        if (lastRow > 1) {
+                            const newIds = [];
+                            for (let r = 2; r <= lastRow; r++) {
+                                newIds.push(['INT-' + Utilities.getUuid().substring(0, 8).toUpperCase()]);
+                            }
+                            sheet.getRange(2, 9, lastRow - 1, 1).setValues(newIds);
+                        }
+                    }
+                    // Other sheets: only header names are corrected below. Extra columns are left alone
+                    // so manually added helper columns in the Sheet are never deleted.
+
+                    // Set the correct headers for all sheets
+                    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+                }
+                sheet.setFrozenRows(1);
+                sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+            }
         }
-        sheet.setFrozenRows(1);
-        sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-      }
     }
-  }
 }
 
 // --- Logic ---
 function getInitialData() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  checkAndFixHeaders(ss);
-  
-  const users = ss.getSheetByName('Users').getDataRange().getValues();
-  const companies = ss.getSheetByName('Companies').getDataRange().getValues();
-  const interactions = ss.getSheetByName('Interactions').getDataRange().getValues();
-  const salesCompanies = ss.getSheetByName('SalesCompanies').getDataRange().getValues();
-  const settings = ss.getSheetByName('Settings').getDataRange().getValues();
-  const moms = ss.getSheetByName('MoMs').getDataRange().getValues();
-  
-  const companyObjects = companies.length > 1 ? companies.slice(1).map(row => ({
-    id: String(row[0]).trim(),
-    companyName: row[1],
-    location: row[2],
-    leadSource: row[3],
-    status: row[4],
-    createdAt: row[5],
-    addedBy: row[6],
-    pocDetails: row[7] 
-  })) : [];
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    checkAndFixHeaders(ss);
 
-  const salesCompanyObjects = salesCompanies.length > 1 ? salesCompanies.slice(1).map(row => ({
-    id: String(row[0]).trim(),
-    companyName: row[1],
-    location: row[2],
-    leadSource: row[3],
-    createdAt: row[4],
-    addedBy: row[5],
-    pocDetails: row[6],
-    phases: row[7]
-  })) : [];
+    const users = ss.getSheetByName('Users').getDataRange().getValues();
+    const companies = ss.getSheetByName('Companies').getDataRange().getValues();
+    const interactions = ss.getSheetByName('Interactions').getDataRange().getValues();
+    const salesCompanies = ss.getSheetByName('SalesCompanies').getDataRange().getValues();
+    const settings = ss.getSheetByName('Settings').getDataRange().getValues();
+    const moms = ss.getSheetByName('MoMs').getDataRange().getValues();
 
-  // Parse Minutes of Meeting
-  const momObjects = moms.length > 1 ? moms.slice(1).map(row => ({
-    id: String(row[0]).trim(),
-    date: row[1],
-    title: row[2],
-    notes: row[3],
-    actionItems: row[4] || '[]',
-    createdBy: row[5]
-  })) : [];
+    const companyObjects = companies.length > 1 ? companies.slice(1).map(row => ({
+        id: String(row[0]).trim(),
+        companyName: row[1],
+        location: row[2],
+        leadSource: row[3],
+        status: row[4],
+        createdAt: row[5],
+        addedBy: row[6],
+        pocDetails: row[7]
+    })) : [];
 
-  // Parse Sales Targets
-  let salesTargets = { pipeline: 0, revenue: 0, converted: 96, wonFromConverted: 24 };
-  if (settings.length > 1) {
-      settings.slice(1).forEach(row => {
-          if (row[0] === 'yearlyPipelineTarget') salesTargets.pipeline = Number(row[1]) || 0;
-          if (row[0] === 'yearlyRevenueTarget') salesTargets.revenue = Number(row[1]) || 0;
-          if (row[0] === 'yearlyConvertedTarget') salesTargets.converted = Number(row[1]) || 96;
-          if (row[0] === 'yearlyWonFromConvertedTarget') salesTargets.wonFromConverted = Number(row[1]) || 24;
-      });
-  }
+    const salesCompanyObjects = salesCompanies.length > 1 ? salesCompanies.slice(1).map(row => ({
+        id: String(row[0]).trim(),
+        companyName: row[1],
+        location: row[2],
+        leadSource: row[3],
+        createdAt: row[4],
+        addedBy: row[5],
+        pocDetails: row[6],
+        phases: row[7]
+    })) : [];
 
-  const performance = {}; 
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay()); 
-  startOfWeek.setHours(0,0,0,0);
+    // Parse Minutes of Meeting
+    const momObjects = moms.length > 1 ? moms.slice(1).map(row => ({
+        id: String(row[0]).trim(),
+        date: row[1],
+        title: row[2],
+        attendees: row[3] || '',
+        notes: row[4],
+        actionItems: row[5] || '[]',
+        createdBy: row[6]
+    })) : [];
 
-  const interactionObjects = interactions.length > 1 ? interactions.slice(1).map(row => {
-    const logDate = new Date(row[0]);
-    const type = row[2];
-    const desc = row[3];
-    const email = row[4];
-
-    if (type === 'Status Change' && (desc === 'Status changed to Presentation' || desc === 'Marketing Lead created with status Presentation')) {
-        if (!performance[email]) performance[email] = { weekly: 0, monthly: 0 };
-        if (logDate >= startOfWeek) performance[email].weekly++;
-        if (logDate >= startOfMonth) performance[email].monthly++;
+    // Parse Sales Targets
+    let salesTargets = { pipeline: 0, revenue: 0, converted: 96, wonFromConverted: 24 };
+    if (settings.length > 1) {
+        settings.slice(1).forEach(row => {
+            if (row[0] === 'yearlyPipelineTarget') salesTargets.pipeline = Number(row[1]) || 0;
+            if (row[0] === 'yearlyRevenueTarget') salesTargets.revenue = Number(row[1]) || 0;
+            if (row[0] === 'yearlyConvertedTarget') salesTargets.converted = Number(row[1]) || 96;
+            if (row[0] === 'yearlyWonFromConvertedTarget') salesTargets.wonFromConverted = Number(row[1]) || 24;
+        });
     }
 
+    const performance = {};
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const interactionObjects = interactions.length > 1 ? interactions.slice(1).map(row => {
+        const logDate = new Date(row[0]);
+        const type = row[2];
+        const desc = row[3];
+        const email = row[4];
+
+        if (type === 'Status Change' && (desc === 'Status changed to Presentation' || desc === 'Marketing Lead created with status Presentation')) {
+            if (!performance[email]) performance[email] = { weekly: 0, monthly: 0 };
+            if (logDate >= startOfWeek) performance[email].weekly++;
+            if (logDate >= startOfMonth) performance[email].monthly++;
+        }
+
+        return {
+            timestamp: row[0],
+            companyId: String(row[1]).trim(),
+            type: row[2],
+            description: row[3],
+            employeeEmail: row[4],
+            nextAction: row[5] || '',
+            nextActionDate: row[6] || '',
+            nextActionStatus: row[7] || 'Pending',
+            interactionId: row[8] || ''
+        };
+    }) : [];
+
+    const usersWithTargets = users.length > 1 ? users.slice(1).map(row => ({
+        name: row[0],
+        email: String(row[1]).trim(),
+        role: row[3],
+        weeklyTarget: row[4] || 0,
+        monthlyTarget: row[5] || 0,
+        performance: performance[String(row[1]).trim()] || { weekly: 0, monthly: 0 }
+    })) : [];
+
     return {
-      timestamp: row[0],
-      companyId: String(row[1]).trim(),
-      type: row[2],
-      description: row[3],
-      employeeEmail: row[4],
-      nextAction: row[5] || '', 
-      nextActionDate: row[6] || '',
-      nextActionStatus: row[7] || 'Pending'
+        users: usersWithTargets,
+        companies: companyObjects,
+        salesCompanies: salesCompanyObjects,
+        interactions: interactionObjects,
+        moms: momObjects,
+        salesTargets: salesTargets,
+        leadSources: [...new Set([...companyObjects.map(c => c.leadSource), ...salesCompanyObjects.map(c => c.leadSource)].filter(Boolean))],
+        interactionTypes: [...new Set(interactionObjects.map(i => i.type).filter(Boolean))]
     };
-  }) : [];
-
-  const usersWithTargets = users.length > 1 ? users.slice(1).map(row => ({
-    name: row[0],
-    email: String(row[1]).trim(),
-    role: row[3],
-    weeklyTarget: row[4] || 0, 
-    monthlyTarget: row[5] || 0,
-    performance: performance[String(row[1]).trim()] || { weekly: 0, monthly: 0 }
-  })) : [];
-
-  return {
-    users: usersWithTargets,
-    companies: companyObjects,
-    salesCompanies: salesCompanyObjects,
-    interactions: interactionObjects,
-    moms: momObjects,
-    salesTargets: salesTargets,
-    leadSources: [...new Set([...companyObjects.map(c => c.leadSource), ...salesCompanyObjects.map(c => c.leadSource)].filter(Boolean))],
-    interactionTypes: [...new Set(interactionObjects.map(i => i.type).filter(Boolean))]
-  };
 }
 
 // --- Minutes of Meeting (MoM) Functions ---
 function addMoM(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
-  const id = obj.id || "MOM-" + Utilities.getUuid().substring(0, 8).toUpperCase();
-  sheet.appendRow([id, obj.date, obj.title, obj.notes, obj.actionItems, obj.createdBy]);
-  return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+    const id = obj.id || "MOM-" + Utilities.getUuid().substring(0, 8).toUpperCase();
+    sheet.appendRow([id, obj.date, obj.title, obj.attendees || '', obj.notes, obj.actionItems, obj.createdBy]);
+    return true;
 }
 
 function updateMoM(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
-      sheet.getRange(i+1, 2).setValue(obj.date);
-      sheet.getRange(i+1, 3).setValue(obj.title);
-      sheet.getRange(i+1, 4).setValue(obj.notes);
-      sheet.getRange(i+1, 5).setValue(obj.actionItems);
-      return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(obj.id).trim()) {
+            sheet.getRange(i + 1, 2).setValue(obj.date);
+            sheet.getRange(i + 1, 3).setValue(obj.title);
+            sheet.getRange(i + 1, 4).setValue(obj.attendees || '');
+            sheet.getRange(i + 1, 5).setValue(obj.notes);
+            sheet.getRange(i + 1, 6).setValue(obj.actionItems);
+            return true;
+        }
     }
-  }
-  throw new Error(`MoM not found for ID: ${obj.id}`);
+    throw new Error(`MoM not found for ID: ${obj.id}`);
 }
 
 function deleteMoM(id) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
-  const data = sheet.getDataRange().getValues();
-  for(let i=data.length-1; i>=1; i--) {
-    if(String(data[i][0]).trim() === String(id).trim()) { 
-      sheet.deleteRow(i+1); 
-      return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+    const data = sheet.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][0]).trim() === String(id).trim()) {
+            sheet.deleteRow(i + 1);
+            return true;
+        }
     }
-  }
-  throw new Error(`MoM not found for ID: ${id}`);
+    throw new Error(`MoM not found for ID: ${id}`);
 }
 
 function toggleMoMAction(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
-      let items = [];
-      try { items = JSON.parse(data[i][4]); } catch(e){}
-      if (items[obj.index]) {
-          items[obj.index].completed = obj.completed;
-          sheet.getRange(i+1, 5).setValue(JSON.stringify(items));
-      }
-      return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('MoMs');
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(obj.id).trim()) {
+            let items = [];
+            try { items = JSON.parse(data[i][5]); } catch (e) { }
+            if (items[obj.index]) {
+                items[obj.index].completed = obj.completed;
+                sheet.getRange(i + 1, 6).setValue(JSON.stringify(items));
+            }
+            return true;
+        }
     }
-  }
-  return false;
+    return false;
 }
 
 // ... (All other marketing, sales, and core logic functions remain exactly the same) ...
@@ -260,10 +328,10 @@ function saveSalesTargets(data) {
     let pFound = false, rFound = false, cFound = false, wFound = false;
 
     for (let i = 1; i < rows.length; i++) {
-        if (rows[i][0] === 'yearlyPipelineTarget') { sheet.getRange(i+1, 2).setValue(data.pipeline); pFound = true; }
-        if (rows[i][0] === 'yearlyRevenueTarget') { sheet.getRange(i+1, 2).setValue(data.revenue); rFound = true; }
-        if (rows[i][0] === 'yearlyConvertedTarget') { sheet.getRange(i+1, 2).setValue(data.converted); cFound = true; }
-        if (rows[i][0] === 'yearlyWonFromConvertedTarget') { sheet.getRange(i+1, 2).setValue(data.wonFromConverted); wFound = true; }
+        if (rows[i][0] === 'yearlyPipelineTarget') { sheet.getRange(i + 1, 2).setValue(data.pipeline); pFound = true; }
+        if (rows[i][0] === 'yearlyRevenueTarget') { sheet.getRange(i + 1, 2).setValue(data.revenue); rFound = true; }
+        if (rows[i][0] === 'yearlyConvertedTarget') { sheet.getRange(i + 1, 2).setValue(data.converted); cFound = true; }
+        if (rows[i][0] === 'yearlyWonFromConvertedTarget') { sheet.getRange(i + 1, 2).setValue(data.wonFromConverted); wFound = true; }
     }
 
     if (!pFound) sheet.appendRow(['yearlyPipelineTarget', data.pipeline]);
@@ -275,259 +343,547 @@ function saveSalesTargets(data) {
 }
 
 function addSalesCompany(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('SalesCompanies');
-  const id = obj.id ? String(obj.id).trim() : "SALES-" + Utilities.getUuid().substring(0, 8).toUpperCase();
-  const pocsData = obj.pocs || obj.pocDetails || '[]';
-  sheet.appendRow([id, obj.companyName, obj.location, obj.leadSource, new Date(), obj.addedBy, pocsData, obj.phases]);
-  return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('SalesCompanies');
+    const id = obj.id ? String(obj.id).trim() : "SALES-" + Utilities.getUuid().substring(0, 8).toUpperCase();
+    const pocsData = obj.pocs || obj.pocDetails || '[]';
+    sheet.appendRow([id, obj.companyName, obj.location, obj.leadSource, new Date(), obj.addedBy, pocsData, obj.phases]);
+    return true;
 }
 
 function updateSalesCompany(obj) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName('SalesCompanies');
-  const data = sheet.getDataRange().getValues();
-  let updated = false;
-  
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
-      sheet.getRange(i+1, 2).setValue(obj.companyName);
-      sheet.getRange(i+1, 3).setValue(obj.location);
-      sheet.getRange(i+1, 4).setValue(obj.leadSource);
-      sheet.getRange(i+1, 7).setValue(obj.pocs || obj.pocDetails || '[]');
-      updated = true;
-      break;
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('SalesCompanies');
+    const data = sheet.getDataRange().getValues();
+    let updated = false;
+
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(obj.id).trim()) {
+            sheet.getRange(i + 1, 2).setValue(obj.companyName);
+            sheet.getRange(i + 1, 3).setValue(obj.location);
+            sheet.getRange(i + 1, 4).setValue(obj.leadSource);
+            sheet.getRange(i + 1, 7).setValue(obj.pocs || obj.pocDetails || '[]');
+            updated = true;
+            break;
+        }
     }
-  }
-  
-  if(!updated) throw new Error(`Sales Lead not found for ID: ${obj.id}`);
 
-  if (String(obj.id).trim().startsWith("COMP-")) {
-      const compSheet = ss.getSheetByName('Companies');
-      if (compSheet) {
-          const compData = compSheet.getDataRange().getValues();
-          for(let j=1; j<compData.length; j++) {
-              if(String(compData[j][0]).trim() === String(obj.id).trim()) {
-                  compSheet.getRange(j+1, 2).setValue(obj.companyName);
-                  compSheet.getRange(j+1, 3).setValue(obj.location);
-                  compSheet.getRange(j+1, 4).setValue(obj.leadSource);
-                  compSheet.getRange(j+1, 8).setValue(obj.pocs || obj.pocDetails || '[]');
-                  break;
-              }
-          }
-      }
-  }
+    if (!updated) throw new Error(`Sales Lead not found for ID: ${obj.id}`);
 
-  return true;
+    if (String(obj.id).trim().startsWith("COMP-")) {
+        const compSheet = ss.getSheetByName('Companies');
+        if (compSheet) {
+            const compData = compSheet.getDataRange().getValues();
+            for (let j = 1; j < compData.length; j++) {
+                if (String(compData[j][0]).trim() === String(obj.id).trim()) {
+                    compSheet.getRange(j + 1, 2).setValue(obj.companyName);
+                    compSheet.getRange(j + 1, 3).setValue(obj.location);
+                    compSheet.getRange(j + 1, 4).setValue(obj.leadSource);
+                    compSheet.getRange(j + 1, 8).setValue(obj.pocs || obj.pocDetails || '[]');
+                    break;
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 function deleteSalesCompany(obj) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName('SalesCompanies');
-  const data = sheet.getDataRange().getValues();
-  let deleted = false;
-  
-  for(let i=data.length-1; i>=1; i--) {
-    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
-      sheet.deleteRow(i+1); 
-      deleted = true;
-      break; 
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('SalesCompanies');
+    const data = sheet.getDataRange().getValues();
+    let deleted = false;
+
+    for (let i = data.length - 1; i >= 1; i--) {
+        if (String(data[i][0]).trim() === String(obj.id).trim()) {
+            sheet.deleteRow(i + 1);
+            deleted = true;
+            break;
+        }
     }
-  }
-  
-  if(!deleted) throw new Error(`Sales Lead not found for ID: ${obj.id}`);
-  
-  if (String(obj.id).trim().startsWith("SALES-")) {
-      const intSheet = ss.getSheetByName('Interactions');
-      const intData = intSheet.getDataRange().getValues();
-      for(let j=intData.length-1; j>=1; j--) {
-          if(String(intData[j][1]).trim() === String(obj.id).trim()) {
-              intSheet.deleteRow(j+1);
-          }
-      }
-  }
-  return true;
+
+    if (!deleted) throw new Error(`Sales Lead not found for ID: ${obj.id}`);
+
+    if (String(obj.id).trim().startsWith("SALES-")) {
+        const intSheet = ss.getSheetByName('Interactions');
+        const intData = intSheet.getDataRange().getValues();
+        for (let j = intData.length - 1; j >= 1; j--) {
+            if (String(intData[j][1]).trim() === String(obj.id).trim()) {
+                intSheet.deleteRow(j + 1);
+            }
+        }
+    }
+    return true;
 }
 
 function updateSalesPhase(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('SalesCompanies');
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
-      sheet.getRange(i+1, 8).setValue(obj.phases); 
-      return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('SalesCompanies');
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(obj.id).trim()) {
+            sheet.getRange(i + 1, 8).setValue(obj.phases);
+            return true;
+        }
     }
-  }
-  throw new Error(`Sales Lead not found for ID: ${obj.id}`);
+    throw new Error(`Sales Lead not found for ID: ${obj.id}`);
 }
 
 
 // --- Marketing Functions ---
 function toggleNextStep(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions');
-  const data = sheet.getDataRange().getValues();
-  
-  for(let i=1; i<data.length; i++) {
-    let sheetDate = data[i][6];
-    let matchDate = false;
-    if (sheetDate instanceof Date) {
-        const sheetIso = sheetDate.toISOString().split('T')[0];
-        matchDate = sheetIso === obj.nextActionDate;
-    } else if (typeof sheetDate === 'string') {
-        matchDate = sheetDate.includes(obj.nextActionDate);
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions');
+    const data = sheet.getDataRange().getValues();
+
+    const matchesText = (row) => {
+        const sheetDate = row[6];
+        let matchDate = false;
+        if (sheetDate instanceof Date) {
+            const y = sheetDate.getFullYear();
+            const m = String(sheetDate.getMonth() + 1).padStart(2, '0');
+            const d = String(sheetDate.getDate()).padStart(2, '0');
+            // Fallback: Check UTC date to prevent timezone shifts from breaking the match
+            const utcIso = sheetDate.toISOString().split('T')[0];
+            matchDate = (`${y}-${m}-${d}` === obj.nextActionDate) || (utcIso === obj.nextActionDate);
+        } else if (typeof sheetDate === 'string') {
+            matchDate = sheetDate.includes(obj.nextActionDate);
+        }
+        return matchDate &&
+            String(row[1]).trim() === String(obj.companyId).trim() &&
+            String(row[5]).trim() === String(obj.nextAction).trim() &&
+            String(row[7]).trim() !== 'Completed' &&
+            String(row[7]).trim() !== 'Completed Late';
+    };
+
+    // 1st choice: exact InteractionID. Fallback: company + action + date on a still-open task
+    let rowIdx = -1;
+    if (obj.interactionId) {
+        rowIdx = data.findIndex((row, idx) => idx > 0 && String(row[8]).trim() === String(obj.interactionId).trim());
+    }
+    if (rowIdx < 1) {
+        rowIdx = data.findIndex((row, idx) => idx > 0 && matchesText(row));
     }
 
-    if(String(data[i][1]).trim() === String(obj.companyId).trim() && data[i][5] === obj.nextAction && matchDate) {
-      let status = 'Completed';
-      let dueDate = sheetDate instanceof Date ? sheetDate : new Date(obj.nextActionDate);
-      let today = new Date(); today.setHours(0,0,0,0); dueDate.setHours(0,0,0,0);
-      if (today > dueDate) status = 'Completed Late';
-      sheet.getRange(i+1, 8).setValue(status);
-      return true;
+    if (rowIdx < 1) return false;
+
+    const i = rowIdx;
+    const sheetDate = data[i][6];
+    let status = 'Completed';
+    let dueDate = sheetDate instanceof Date ? new Date(sheetDate) : new Date(obj.nextActionDate);
+    let today = new Date(); today.setHours(0, 0, 0, 0); dueDate.setHours(0, 0, 0, 0);
+    // A reason is only sent when the frontend judged the task late, so trust it even if the script timezone disagrees
+    if (today > dueDate || obj.reason) status = 'Completed Late';
+    sheet.getRange(i + 1, 8).setValue(status);
+
+    // If a late reason was provided, append it to the description
+    if (obj.reason) {
+        const currentDesc = data[i][3] || '';
+        const newDesc = currentDesc + ` [Task '${obj.nextAction}' completed late. Reason: ${obj.reason}]`;
+        sheet.getRange(i + 1, 4).setValue(newDesc);
     }
-  }
-  return false;
+
+    return true;
 }
 
 function saveTargets(data) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
-  const rows = sheet.getDataRange().getValues();
-  for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][1]).trim().toLowerCase() === String(data.email).trim().toLowerCase()) {
-      sheet.getRange(i + 1, 5).setValue(data.weekly);
-      sheet.getRange(i + 1, 6).setValue(data.monthly);
-      return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][1]).trim().toLowerCase() === String(data.email).trim().toLowerCase()) {
+            sheet.getRange(i + 1, 5).setValue(data.weekly);
+            sheet.getRange(i + 1, 6).setValue(data.monthly);
+            return true;
+        }
     }
-  }
-  return false;
+    return false;
 }
 
 function addCompany(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
-  const id = obj.id ? String(obj.id).trim() : "COMP-" + Utilities.getUuid().substring(0, 8).toUpperCase();
-  const pocsData = obj.pocs || obj.pocDetails || '[]';
-  sheet.appendRow([id, obj.companyName, obj.location, obj.leadSource, obj.status, new Date(), obj.addedBy, pocsData]);
-  return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
+    const id = obj.id ? String(obj.id).trim() : "COMP-" + Utilities.getUuid().substring(0, 8).toUpperCase();
+    const pocsData = obj.pocs || obj.pocDetails || '[]';
+    sheet.appendRow([id, obj.companyName, obj.location, obj.leadSource, obj.status, new Date(), obj.addedBy, pocsData]);
+    return true;
 }
 
 function updateCompany(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
-  const data = sheet.getDataRange().getValues();
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]).trim() === String(obj.id).trim()) { 
-      const range = sheet.getRange(i+1, 1, 1, 8);
-      const row = data[i]; 
-      row[1] = obj.companyName; row[2] = obj.location; row[3] = obj.leadSource; row[4] = obj.status; row[7] = obj.pocs || obj.pocDetails || '[]'; 
-      range.setValues([row]);
-      return true;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(obj.id).trim()) {
+            const range = sheet.getRange(i + 1, 1, 1, 8);
+            const row = data[i];
+            row[1] = obj.companyName; row[2] = obj.location; row[3] = obj.leadSource; row[4] = obj.status; row[7] = obj.pocs || obj.pocDetails || '[]';
+            range.setValues([row]);
+            return true;
+        }
     }
-  }
-  throw new Error(`Marketing Lead not found for ID: ${obj.id}`);
+    throw new Error(`Marketing Lead not found for ID: ${obj.id}`);
 }
 
 function deleteCompany(obj) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const compSheet = ss.getSheetByName('Companies');
-  const compData = compSheet.getDataRange().getValues();
-  let deleted = false;
-  for(let i=compData.length-1; i>=1; i--) {
-    if(String(compData[i][0]).trim() === String(obj.id).trim()) { 
-      compSheet.deleteRow(i+1); 
-      deleted = true;
-      break; 
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const compSheet = ss.getSheetByName('Companies');
+    const compData = compSheet.getDataRange().getValues();
+    let deleted = false;
+    for (let i = compData.length - 1; i >= 1; i--) {
+        if (String(compData[i][0]).trim() === String(obj.id).trim()) {
+            compSheet.deleteRow(i + 1);
+            deleted = true;
+            break;
+        }
     }
-  }
-  
-  if(!deleted) throw new Error(`Marketing Lead not found for ID: ${obj.id}`);
 
-  const intSheet = ss.getSheetByName('Interactions');
-  const intData = intSheet.getDataRange().getValues();
-  for(let j = intData.length - 1; j >= 1; j--) {
-    if(String(intData[j][1]).trim() === String(obj.id).trim()) {
-        intSheet.deleteRow(j + 1);
+    if (!deleted) throw new Error(`Marketing Lead not found for ID: ${obj.id}`);
+
+    const intSheet = ss.getSheetByName('Interactions');
+    const intData = intSheet.getDataRange().getValues();
+    for (let j = intData.length - 1; j >= 1; j--) {
+        if (String(intData[j][1]).trim() === String(obj.id).trim()) {
+            intSheet.deleteRow(j + 1);
+        }
     }
-  }
 
-  const salesSheet = ss.getSheetByName('SalesCompanies');
-  if (salesSheet) {
-      const salesData = salesSheet.getDataRange().getValues();
-      for(let k = salesData.length - 1; k >= 1; k--) {
-          if(String(salesData[k][0]).trim() === String(obj.id).trim()) {
-              salesSheet.deleteRow(k + 1);
-          }
-      }
-  }
+    const salesSheet = ss.getSheetByName('SalesCompanies');
+    if (salesSheet) {
+        const salesData = salesSheet.getDataRange().getValues();
+        for (let k = salesData.length - 1; k >= 1; k--) {
+            if (String(salesData[k][0]).trim() === String(obj.id).trim()) {
+                salesSheet.deleteRow(k + 1);
+            }
+        }
+    }
 
-  return true;
+    return true;
 }
 
 function updateCompanyStatus(obj) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
-  const data = sheet.getDataRange().getValues();
-  let found = false;
-  for(let i=1; i<data.length; i++) {
-    if(String(data[i][0]).trim() === String(obj.companyId).trim()) {
-      if (data[i][4] === obj.newStatus) return true; 
-      sheet.getRange(i+1, 5).setValue(obj.newStatus); 
-      found = true;
-      break;
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Companies');
+    const data = sheet.getDataRange().getValues();
+    let found = false;
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === String(obj.companyId).trim()) {
+            if (data[i][4] === obj.newStatus) return true;
+            sheet.getRange(i + 1, 5).setValue(obj.newStatus);
+            found = true;
+            break;
+        }
     }
-  }
-  if(found) SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions').appendRow([new Date(), String(obj.companyId).trim(), 'Status Change', `Status changed to ${obj.newStatus}`, obj.employeeEmail, '', '', 'Completed']);
-  return found;
+    if (found) SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions').appendRow([new Date(), String(obj.companyId).trim(), 'Status Change', `Status changed to ${obj.newStatus}`, obj.employeeEmail, '', '', 'Completed', newInteractionId()]);
+    return found;
+}
+
+function newInteractionId() {
+    return 'INT-' + Utilities.getUuid().substring(0, 8).toUpperCase();
 }
 
 function logInteraction(obj) {
-  SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions').appendRow([
-    new Date(), String(obj.companyId).trim(), obj.interactionType, obj.description, obj.employeeEmail, obj.nextAction || '', obj.nextActionDate || '', 'Pending'
-  ]);
-  return true;
+    // Use the ID generated by the frontend (so a task can be completed before the next refresh), else create one
+    const uid = obj.interactionId ? String(obj.interactionId).trim() : newInteractionId();
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Interactions').appendRow([
+        new Date(), String(obj.companyId).trim(), obj.interactionType, obj.description, obj.employeeEmail, obj.nextAction || '', obj.nextActionDate || '', obj.nextActionStatus || 'Pending', uid
+    ]);
+    return true;
 }
 
-function authenticateUser(email, pass) { 
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
-  if(!sheet) return null;
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][1]).trim().toLowerCase() === String(email).trim().toLowerCase() && String(data[i][2]).trim() === String(pass).trim()) {
-      return { name: data[i][0], email: data[i][1], role: data[i][3] };
+function authenticateUser(email, pass) {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][1]).trim().toLowerCase() === String(email).trim().toLowerCase() && String(data[i][2]).trim() === String(pass).trim()) {
+            return { name: data[i][0], email: data[i][1], role: data[i][3] };
+        }
     }
-  }
-  return null;
+    return null;
 }
 
-function addUser(obj) { 
-  SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users').appendRow([obj.name, obj.email, obj.password, obj.role, 0, 0]); 
-  return true; 
+function addUser(obj) {
+    SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users').appendRow([obj.name, obj.email, obj.password, obj.role, 0, 0]);
+    return true;
 }
 
-function deleteUser(email) { 
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][1]).trim() === String(email).trim()) { sheet.deleteRow(i + 1); break; }
-  }
-  return true;
+function deleteUser(email) {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Users');
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][1]).trim() === String(email).trim()) { sheet.deleteRow(i + 1); break; }
+    }
+    return true;
+}
+
+// --- DIAGNOSTIC: Check MoM Schema ---
+function checkMoMSchema() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('MoMs');
+
+    if (!sheet) {
+        Logger.log('❌ MoMs sheet does not exist.');
+        return;
+    }
+
+    const lastColumn = sheet.getLastColumn();
+    const currentHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    const expectedHeaders = ['ID', 'Date', 'Title', 'Attendees', 'Notes', 'ActionItemsJSON', 'CreatedBy'];
+
+    Logger.log('=== MoM SCHEMA DIAGNOSTIC ===');
+    Logger.log('Expected headers: ' + expectedHeaders.join(' | '));
+    Logger.log('Current headers:  ' + currentHeaders.join(' | '));
+    Logger.log('Expected columns: ' + expectedHeaders.length);
+    Logger.log('Current columns:  ' + lastColumn);
+    Logger.log('');
+
+    // Detailed comparison
+    for (let i = 0; i < Math.max(expectedHeaders.length, currentHeaders.length); i++) {
+        const expected = expectedHeaders[i] || '(missing)';
+        const current = String(currentHeaders[i] || '').trim() || '(empty)';
+        const match = expected === current ? '✓' : '✗';
+        Logger.log(`Column ${i + 1}: ${match} Expected="${expected}" Current="${current}"`);
+    }
+
+    if (lastColumn === expectedHeaders.length) {
+        let allMatch = true;
+        for (let i = 0; i < expectedHeaders.length; i++) {
+            if (String(currentHeaders[i] || '').trim() !== expectedHeaders[i]) {
+                allMatch = false;
+                break;
+            }
+        }
+        if (allMatch) {
+            Logger.log('\n✅ Schema is CORRECT!');
+        } else {
+            Logger.log('\n⚠️  Column count is correct but header names are wrong.');
+            Logger.log('Run fixMoMHeaders() to fix just the header names.');
+        }
+    } else if (lastColumn < expectedHeaders.length) {
+        Logger.log('\n❌ Missing columns! Run migrateMoMsToNewSchema() to add Attendees column.');
+    } else {
+        Logger.log('\n❌ Extra columns detected! Run migrateMoMsToNewSchema() to remove them.');
+    }
+}
+
+// --- COMPLETE FIX: Fixes both headers AND data structure ---
+function fixMoMCompleteWithData() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('MoMs');
+
+    if (!sheet) {
+        Logger.log('❌ MoMs sheet does not exist.');
+        return;
+    }
+
+    const lastColumn = sheet.getLastColumn();
+    const currentHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+
+    Logger.log('Current structure:');
+    Logger.log('Headers: ' + currentHeaders.join(' | '));
+    Logger.log('Columns: ' + lastColumn);
+
+    const col4Header = String(currentHeaders[3] || '').trim();
+    const correctHeaders = ['ID', 'Date', 'Title', 'Attendees', 'Notes', 'ActionItemsJSON', 'CreatedBy'];
+
+    // CASE 1: 7 columns with wrong structure (Notes in position 4)
+    if (lastColumn === 7 && col4Header === 'Notes') {
+        Logger.log('Detected: 7 columns with Notes in position 4 (wrong structure)');
+        Logger.log('Action: Delete last column, then insert Attendees column...');
+
+        // Delete the duplicate last column
+        sheet.deleteColumn(7);
+        Logger.log('Deleted column 7');
+
+        // Now we have 6 columns: ID, Date, Title, Notes, ActionItemsJSON, CreatedBy
+        // Insert Attendees after Title (position 3)
+        sheet.insertColumnAfter(3);
+        Logger.log('Inserted new column after position 3');
+
+        // Fill existing rows with empty Attendees
+        if (sheet.getLastRow() > 1) {
+            sheet.getRange(2, 4, sheet.getLastRow() - 1, 1).setValue('');
+            Logger.log('Filled ' + (sheet.getLastRow() - 1) + ' rows with empty Attendees values');
+        }
+
+        // Set correct headers
+        sheet.getRange(1, 1, 1, 7).setValues([correctHeaders]);
+        sheet.setFrozenRows(1);
+        sheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+        Logger.log('✅ COMPLETE! Headers and data structure fixed.');
+        Logger.log('New structure: ' + correctHeaders.join(' | '));
+    }
+    // CASE 2: 6 columns without Attendees
+    else if (lastColumn === 6 && col4Header === 'Notes') {
+        Logger.log('Detected: 6 columns without Attendees');
+        Logger.log('Action: Insert Attendees column...');
+
+        sheet.insertColumnAfter(3);
+
+        if (sheet.getLastRow() > 1) {
+            sheet.getRange(2, 4, sheet.getLastRow() - 1, 1).setValue('');
+        }
+
+        sheet.getRange(1, 1, 1, 7).setValues([correctHeaders]);
+        sheet.setFrozenRows(1);
+        sheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+        Logger.log('✅ COMPLETE! Attendees column added.');
+        Logger.log('New structure: ' + correctHeaders.join(' | '));
+    }
+    // CASE 3: Already correct
+    else if (lastColumn === 7 && col4Header === 'Attendees') {
+        Logger.log('✅ Schema already correct!');
+        Logger.log('Current structure: ' + currentHeaders.join(' | '));
+    }
+    // CASE 4: Unknown state
+    else {
+        Logger.log('❌ Unexpected schema state:');
+        Logger.log('Columns: ' + lastColumn + ', Column 4: ' + col4Header);
+        Logger.log('Run checkMoMSchema() for detailed diagnostic.');
+    }
+}
+
+// --- NUCLEAR OPTION: Force Fix MoM Headers ONLY (Don't use if you have data!) ---
+// Use this if migration keeps failing - this just fixes header names without touching data
+function fixMoMHeaders() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('MoMs');
+
+    if (!sheet) {
+        Logger.log('❌ MoMs sheet does not exist.');
+        return;
+    }
+
+    const lastColumn = sheet.getLastColumn();
+
+    if (lastColumn !== 7) {
+        Logger.log('❌ ERROR: Sheet has ' + lastColumn + ' columns, expected 7.');
+        Logger.log('Please run migrateMoMsToNewSchema() first to fix column count.');
+        return;
+    }
+
+    const correctHeaders = ['ID', 'Date', 'Title', 'Attendees', 'Notes', 'ActionItemsJSON', 'CreatedBy'];
+    sheet.getRange(1, 1, 1, 7).setValues([correctHeaders]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+    Logger.log('✅ Headers fixed! Current headers: ' + correctHeaders.join(' | '));
+    Logger.log('⚠️  WARNING: If you have existing data, it may be misaligned!');
+    Logger.log('Run fixMoMCompleteWithData() to fix both headers and data structure.');
+}
+
+// --- Manual MoM Migration Helper ---
+// Run this ONCE if you have existing MoM data with the old schema
+function migrateMoMsToNewSchema() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('MoMs');
+
+    if (!sheet) {
+        Logger.log('❌ MoMs sheet does not exist. Run setup() first.');
+        return;
+    }
+
+    const lastColumn = sheet.getLastColumn();
+    const currentHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+
+    Logger.log('Current headers: ' + currentHeaders.join(' | '));
+    Logger.log('Current column count: ' + lastColumn);
+
+    // Check if we have the old schema (6 columns without Attendees)
+    if (lastColumn === 6 && String(currentHeaders[3]).trim() === 'Notes') {
+        Logger.log('Old schema detected. Migrating...');
+
+        // Insert a new column after "Title" (column 3)
+        sheet.insertColumnAfter(3);
+
+        // Set the correct headers
+        const newHeaders = ['ID', 'Date', 'Title', 'Attendees', 'Notes', 'ActionItemsJSON', 'CreatedBy'];
+        sheet.getRange(1, 1, 1, newHeaders.length).setValues([newHeaders]);
+
+        // Fill the Attendees column with empty strings for existing rows
+        if (sheet.getLastRow() > 1) {
+            sheet.getRange(2, 4, sheet.getLastRow() - 1, 1).setValue('');
+        }
+
+        sheet.setFrozenRows(1);
+        sheet.getRange(1, 1, 1, newHeaders.length).setFontWeight("bold");
+
+        Logger.log('✅ Migration complete! New headers: ' + newHeaders.join(' | '));
+    } else if (lastColumn === 7 && String(currentHeaders[3]).trim() === 'Attendees') {
+        Logger.log('✅ Schema is already correct. No migration needed.');
+    } else if (lastColumn > 7) {
+        Logger.log('⚠️  Extra columns detected. Deleting columns beyond position 7...');
+        sheet.deleteColumns(8, lastColumn - 7);
+
+        // Set correct headers
+        const newHeaders = ['ID', 'Date', 'Title', 'Attendees', 'Notes', 'ActionItemsJSON', 'CreatedBy'];
+        sheet.getRange(1, 1, 1, newHeaders.length).setValues([newHeaders]);
+        sheet.setFrozenRows(1);
+        sheet.getRange(1, 1, 1, newHeaders.length).setFontWeight("bold");
+
+        Logger.log('✅ Extra columns removed. Headers corrected.');
+    } else {
+        Logger.log('❌ Unrecognized schema. Current headers: ' + currentHeaders.join(' | '));
+        Logger.log('Please manually delete the MoMs sheet and run setup() again.');
+    }
 }
 
 // --- Data Setup Engine ---
 function setup() {
-  if (!SPREADSHEET_ID || SPREADSHEET_ID === "PASTE_YOUR_SHEET_ID_HERE") {
-    throw new Error("You must paste your SPREADSHEET_ID at the top of the file before running setup().");
-  }
+    if (!SPREADSHEET_ID || SPREADSHEET_ID === "PASTE_YOUR_SHEET_ID_HERE") {
+        throw new Error("You must paste your SPREADSHEET_ID at the top of the file before running setup().");
+    }
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  checkAndFixHeaders(ss); 
-  
-  if (ss.getSheetByName('Users').getLastRow() <= 1) {
-    ss.getSheetByName('Users').appendRow(['Admin', 'admin@example.com', 'admin123', 'Admin', 0, 0]);
-  }
-  if (ss.getSheetByName('Companies').getLastRow() <= 1) {
-    ss.getSheetByName('Companies').appendRow(['COMP-001', 'Acme Corp', 'NY', 'LinkedIn', 'Lead Generated', new Date(), 'admin@example.com', '[{"name":"Alice","role":"CTO","email":"a@acme.com","phone":"123"}]']);
-    ss.getSheetByName('Interactions').appendRow([new Date(), 'COMP-001', 'Status Change', 'Marketing Lead created with status Lead Generated', 'admin@example.com', '', '', 'Completed']);
-  }
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    checkAndFixHeaders(ss);
 
-  const defaultSheet = ss.getSheetByName("Sheet1");
-  if (defaultSheet && ss.getSheets().length > 1) {
-    ss.deleteSheet(defaultSheet);
-  }
+    if (ss.getSheetByName('Users').getLastRow() <= 1) {
+        ss.getSheetByName('Users').appendRow(['Admin', 'admin@example.com', 'admin123', 'Admin', 0, 0]);
+    }
+    if (ss.getSheetByName('Companies').getLastRow() <= 1) {
+        ss.getSheetByName('Companies').appendRow(['COMP-001', 'Acme Corp', 'NY', 'LinkedIn', 'Lead Generated', new Date(), 'admin@example.com', '[{"name":"Alice","role":"CTO","email":"a@acme.com","phone":"123"}]']);
+        ss.getSheetByName('Interactions').appendRow([new Date(), 'COMP-001', 'Status Change', 'Marketing Lead created with status Lead Generated', 'admin@example.com', '', '', 'Completed', newInteractionId()]);
+    }
+
+    const defaultSheet = ss.getSheetByName("Sheet1");
+    if (defaultSheet && ss.getSheets().length > 1) {
+        ss.deleteSheet(defaultSheet);
+    }
+}
+
+// --- Manual Diagnostic/Fix Functions ---
+function backfillInteractionIDs() {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Interactions');
+    
+    if (!sheet) {
+        Logger.log("Interactions sheet not found.");
+        return;
+    }
+    
+    // Ensure the header exists
+    sheet.getRange(1, 9).setValue('InteractionID');
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+        Logger.log("No data rows found to backfill.");
+        return;
+    }
+    
+    // Get existing IDs from column 9
+    const existingIds = sheet.getRange(2, 9, lastRow - 1, 1).getValues();
+    let updatedCount = 0;
+    
+    for (let i = 0; i < existingIds.length; i++) {
+        // If the ID is empty, generate one
+        if (!existingIds[i][0] || String(existingIds[i][0]).trim() === '') {
+            existingIds[i][0] = 'INT-' + Utilities.getUuid().substring(0, 8).toUpperCase();
+            updatedCount++;
+        }
+    }
+    
+    // Write back the array
+    if (updatedCount > 0) {
+        sheet.getRange(2, 9, lastRow - 1, 1).setValues(existingIds);
+        Logger.log(`Successfully generated and inserted ${updatedCount} missing Interaction IDs!`);
+    } else {
+        Logger.log("All rows already have an Interaction ID. Nothing to update.");
+    }
 }
